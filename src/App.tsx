@@ -34,7 +34,9 @@ import {
   Play,
   Calendar,
   AlertCircle,
-  Target
+  Target,
+  Moon,
+  Sun
 } from 'lucide-react';
 import {
   getCachedAccessToken,
@@ -68,6 +70,19 @@ export default function App() {
   const [toast, setToast] = useState<{ message: string; link?: string } | null>(null);
   const [runningSweep, setRunningSweep] = useState(false);
   const [sweepLogs, setSweepLogs] = useState<string[] | null>(null);
+  const [darkMode, setDarkMode] = useState(() => {
+    return localStorage.getItem('flare_theme') === 'dark';
+  });
+
+  useEffect(() => {
+    if (darkMode) {
+      document.documentElement.classList.add('dark');
+      localStorage.setItem('flare_theme', 'dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+      localStorage.setItem('flare_theme', 'light');
+    }
+  }, [darkMode]);
 
   // 1. Firebase Auth listener
   useEffect(() => {
@@ -517,11 +532,11 @@ export default function App() {
 
   if (authChecking) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-[#F9F8F6] px-6" id="splash-screen">
+      <div className="min-h-screen flex flex-col items-center justify-center bg-[#F9F8F6] dark:bg-zinc-950 dark:text-zinc-100 px-6" id="splash-screen">
         <div className="flex flex-col items-center text-center max-w-sm space-y-4">
-          <h1 className="text-6xl font-black italic tracking-tighter font-serif text-zinc-950">FLARE.</h1>
-          <div className="h-px w-16 bg-black/25" />
-          <p className="text-[10px] uppercase tracking-[0.2em] font-bold text-zinc-500">AI Triage engine is warming up...</p>
+          <h1 className="text-6xl font-black italic tracking-tighter font-serif text-zinc-950 dark:text-white">FLARE.</h1>
+          <div className="h-px w-16 bg-black/25 dark:bg-white/25" />
+          <p className="text-[10px] uppercase tracking-[0.2em] font-bold text-zinc-500 dark:text-zinc-400">AI Triage engine is warming up...</p>
         </div>
       </div>
     );
@@ -532,18 +547,27 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[#F9F8F6] text-[#1A1A1A] flex flex-col px-4 sm:px-8 md:px-12 py-8" id="app-root-container">
+    <div className="min-h-screen bg-[#F9F8F6] text-[#1A1A1A] dark:bg-zinc-950 dark:text-zinc-100 flex flex-col px-4 sm:px-8 md:px-12 py-8" id="app-root-container">
       
       {/* 1. TOP MAIN NAV / HEADER */}
-      <header className="flex flex-col lg:flex-row justify-between items-start border-b border-black/10 pb-8 mb-8 gap-6" id="main-header">
+      <header className="flex flex-col lg:flex-row justify-between items-start border-b border-black/10 dark:border-white/10 pb-8 mb-8 gap-6" id="main-header">
         
         {/* Logo Brand & Metadata */}
         <div className="flex flex-col">
-          <h1 className="text-5xl font-black tracking-tighter leading-none italic font-serif">FLARE.</h1>
+          <div className="flex items-center gap-4">
+            <h1 className="text-5xl font-black tracking-tighter leading-none italic font-serif">FLARE.</h1>
+            <button
+              onClick={() => setDarkMode(!darkMode)}
+              className="p-1.5 border border-black/10 dark:border-white/10 rounded-none bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 transition-colors"
+              title="Toggle Dark Mode"
+            >
+              {darkMode ? <Sun className="w-4 h-4 text-amber-500" /> : <Moon className="w-4 h-4 text-zinc-700" />}
+            </button>
+          </div>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2">
             <p className="text-[10px] uppercase tracking-[0.2em] font-bold opacity-60">AI Deadline Rescue Companion</p>
-            <span className="text-[9px] font-mono bg-black/5 text-zinc-700 px-1.5 py-0.5 border border-black/5">v1.2-AI</span>
-            <span className="text-[9px] font-mono text-zinc-500">
+            <span className="text-[9px] font-mono bg-black/5 dark:bg-white/5 text-zinc-700 dark:text-zinc-300 px-1.5 py-0.5 border border-black/5 dark:border-white/5">v1.2-AI</span>
+            <span className="text-[9px] font-mono text-zinc-500 dark:text-zinc-400">
               {user ? (user.email || 'Cloud User') : 'Guest Session'}
             </span>
             {calendarConnected ? (
@@ -582,7 +606,7 @@ export default function App() {
 
         {/* Pinned / Critical Banner in Header */}
         {pinnedTask ? (
-          <div className="bg-white border border-red-200 p-5 rounded-none flex flex-col md:flex-row md:items-center gap-6 max-w-2xl shadow-xs animate-fade-in" id="pinned-hero-banner">
+          <div className="bg-white dark:bg-zinc-900 border border-red-200 dark:border-red-500/20 p-5 rounded-none flex flex-col md:flex-row md:items-center gap-6 max-w-2xl shadow-xs animate-fade-in" id="pinned-hero-banner">
             <div className="bg-red-500 text-white px-3 py-1.5 text-[10px] font-black uppercase rotate-[-2deg] self-start md:self-auto shrink-0 shadow-xs">
               Critical Priority
             </div>
@@ -622,7 +646,7 @@ export default function App() {
             </div>
           </div>
         ) : (
-          <div className="bg-white border border-black/5 p-4 rounded-none flex items-center gap-4 max-w-xl shadow-xs" id="clear-hero-banner">
+          <div className="bg-white dark:bg-zinc-900 border border-black/5 dark:border-white/5 p-4 rounded-none flex items-center gap-4 max-w-xl shadow-xs" id="clear-hero-banner">
             <div className="bg-emerald-600 text-white px-2.5 py-1 text-[9px] font-black uppercase rotate-[-2deg]">
               Status Clear
             </div>
@@ -661,7 +685,7 @@ export default function App() {
               className={`flex-1 sm:flex-none px-4 py-2 text-[10px] font-bold uppercase tracking-widest border transition-all cursor-pointer ${
                 recomputing
                   ? 'bg-amber-50 border-amber-300 text-amber-700 animate-pulse'
-                  : 'bg-white hover:bg-zinc-100 border-black/10 text-zinc-700 hover:text-black'
+                  : 'bg-white dark:bg-zinc-900 hover:bg-zinc-100 dark:hover:bg-zinc-800 border-black/10 dark:border-white/10 text-zinc-700 dark:text-zinc-300 hover:text-black dark:hover:text-white'
               }`}
               title="Run server-side AI scanning"
               id="manual-ai-scan-btn"
@@ -682,11 +706,11 @@ export default function App() {
 
       {/* View Toggle */}
       <div className="flex justify-center mb-6">
-        <div className="bg-zinc-200/50 p-1 flex gap-1 rounded-sm">
+        <div className="bg-zinc-200/50 dark:bg-zinc-800 p-1 flex gap-1 rounded-sm">
           <button
             onClick={() => setActiveView('tasks')}
             className={`px-6 py-2 text-[10px] font-bold uppercase tracking-widest transition-all ${
-              activeView === 'tasks' ? 'bg-white shadow-sm text-black' : 'text-zinc-500 hover:text-black'
+              activeView === 'tasks' ? 'bg-white dark:bg-zinc-700 shadow-sm text-black dark:text-white' : 'text-zinc-500 hover:text-black dark:hover:text-white'
             }`}
           >
             Triage Board
@@ -694,7 +718,7 @@ export default function App() {
           <button
             onClick={() => setActiveView('habits')}
             className={`px-6 py-2 text-[10px] font-bold uppercase tracking-widest transition-all ${
-              activeView === 'habits' ? 'bg-white shadow-sm text-black' : 'text-zinc-500 hover:text-black'
+              activeView === 'habits' ? 'bg-white dark:bg-zinc-700 shadow-sm text-black dark:text-white' : 'text-zinc-500 hover:text-black dark:hover:text-white'
             }`}
           >
             Goals & Habits
@@ -702,7 +726,7 @@ export default function App() {
           <button
             onClick={() => setActiveView('insights')}
             className={`px-6 py-2 text-[10px] font-bold uppercase tracking-widest transition-all ${
-              activeView === 'insights' ? 'bg-white shadow-sm text-black' : 'text-zinc-500 hover:text-black'
+              activeView === 'insights' ? 'bg-white dark:bg-zinc-700 shadow-sm text-black dark:text-white' : 'text-zinc-500 hover:text-black dark:hover:text-white'
             }`}
           >
             Effort Insights
@@ -723,7 +747,7 @@ export default function App() {
         ) : (
           <>
             {/* SEARCH & FILTERS CONTROLS */}
-        <div className="bg-white border border-black/10 p-4 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4 shadow-2xs" id="board-filters-bar">
+        <div className="bg-white dark:bg-zinc-900 border border-black/10 dark:border-white/10 p-4 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4 shadow-2xs" id="board-filters-bar">
           
           <div className="flex flex-1 flex-col sm:flex-row gap-3">
             {/* Search Input */}
@@ -814,8 +838,8 @@ export default function App() {
               {/* Column Header */}
               <div className="flex justify-between items-baseline mb-2 border-b-2 border-red-500 pb-2">
                 <div className="flex items-baseline gap-2">
-                  <h3 className="text-lg font-black uppercase tracking-tighter text-zinc-900">01. Critical</h3>
-                  <span className="text-xs font-bold font-mono text-red-600">({criticalTasks.length})</span>
+                  <h3 className="text-lg font-black uppercase tracking-tighter text-zinc-900 dark:text-zinc-100">01. Critical</h3>
+                  <span className="text-xs font-bold font-mono text-red-600 dark:text-red-500">({criticalTasks.length})</span>
                 </div>
                 <span className="text-[10px] font-mono opacity-50 italic">At Risk ({criticalHours}h)</span>
               </div>
@@ -838,8 +862,8 @@ export default function App() {
                     />
                   ))
                 ) : (
-                  <div className="flex-1 border border-dashed border-black/10 rounded-none bg-white/40 flex flex-col items-center justify-center p-8 text-center text-zinc-400">
-                    <p className="text-xs font-bold uppercase tracking-wider text-zinc-800">No Critical Threats</p>
+                  <div className="flex-1 border border-dashed border-black/10 dark:border-white/10 rounded-none bg-white/40 dark:bg-white/5 flex flex-col items-center justify-center p-8 text-center text-zinc-400 dark:text-zinc-500">
+                    <p className="text-xs font-bold uppercase tracking-wider text-zinc-800 dark:text-zinc-300">No Critical Threats</p>
                     <p className="text-[10px] mt-1 max-w-[180px] font-sans">All active items have a comfortable timeline buffer.</p>
                   </div>
                 )}
@@ -853,7 +877,7 @@ export default function App() {
               {/* Column Header */}
               <div className="flex justify-between items-baseline mb-2 border-b border-orange-400 pb-2">
                 <div className="flex items-baseline gap-2">
-                  <h3 className="text-lg font-black uppercase tracking-tighter text-zinc-900">02. Urgent</h3>
+                  <h3 className="text-lg font-black uppercase tracking-tighter text-zinc-900 dark:text-zinc-100">02. Urgent</h3>
                   <span className="text-xs font-bold font-mono text-orange-500">({urgentTasks.length})</span>
                 </div>
                 <span className="text-[10px] font-mono opacity-50 italic">Due &lt; 48h ({urgentHours}h)</span>
@@ -877,8 +901,8 @@ export default function App() {
                     />
                   ))
                 ) : (
-                  <div className="flex-1 border border-dashed border-black/10 rounded-none bg-white/40 flex flex-col items-center justify-center p-8 text-center text-zinc-400">
-                    <p className="text-xs font-bold uppercase tracking-wider text-zinc-800">No Urgent Backlogs</p>
+                  <div className="flex-1 border border-dashed border-black/10 dark:border-white/10 rounded-none bg-white/40 dark:bg-white/5 flex flex-col items-center justify-center p-8 text-center text-zinc-400 dark:text-zinc-500">
+                    <p className="text-xs font-bold uppercase tracking-wider text-zinc-800 dark:text-zinc-300">No Urgent Backlogs</p>
                     <p className="text-[10px] mt-1 max-w-[180px] font-sans">Nothing pressing due today or tomorrow.</p>
                   </div>
                 )}
@@ -890,10 +914,10 @@ export default function App() {
             <section className="flex flex-col gap-4" id="col-stable">
               
               {/* Column Header */}
-              <div className="flex justify-between items-baseline mb-2 border-b border-black/20 pb-2">
+              <div className="flex justify-between items-baseline mb-2 border-b border-black/20 dark:border-white/20 pb-2">
                 <div className="flex items-baseline gap-2">
-                  <h3 className="text-lg font-black uppercase tracking-tighter text-zinc-900">03. Stable</h3>
-                  <span className="text-xs font-bold font-mono text-zinc-500">({stableTasks.length})</span>
+                  <h3 className="text-lg font-black uppercase tracking-tighter text-zinc-900 dark:text-zinc-100">03. Stable</h3>
+                  <span className="text-xs font-bold font-mono text-zinc-500 dark:text-zinc-400">({stableTasks.length})</span>
                 </div>
                 <span className="text-[10px] font-mono opacity-50 italic">On Track ({stableHours}h)</span>
               </div>
@@ -916,8 +940,8 @@ export default function App() {
                     />
                   ))
                 ) : (
-                  <div className="flex-1 border border-dashed border-black/10 rounded-none bg-white/40 flex flex-col items-center justify-center p-8 text-center text-zinc-400">
-                    <p className="text-xs font-bold uppercase tracking-wider text-zinc-800">No Stable Tasks</p>
+                  <div className="flex-1 border border-dashed border-black/10 dark:border-white/10 rounded-none bg-white/40 dark:bg-white/5 flex flex-col items-center justify-center p-8 text-center text-zinc-400 dark:text-zinc-500">
+                    <p className="text-xs font-bold uppercase tracking-wider text-zinc-800 dark:text-zinc-300">No Stable Tasks</p>
                     <p className="text-[10px] mt-1 max-w-[180px] font-sans">Deploy tasks to watch their buffer values change.</p>
                   </div>
                 )}
@@ -932,8 +956,8 @@ export default function App() {
                 {/* Column Header */}
                 <div className="flex justify-between items-baseline mb-2 border-b border-emerald-500 pb-2">
                   <div className="flex items-baseline gap-2">
-                    <h3 className="text-lg font-black uppercase tracking-tighter text-zinc-900">04. Finished</h3>
-                    <span className="text-xs font-bold font-mono text-emerald-600">({finishedTasks.length})</span>
+                    <h3 className="text-lg font-black uppercase tracking-tighter text-zinc-900 dark:text-zinc-100">04. Finished</h3>
+                    <span className="text-xs font-bold font-mono text-emerald-600 dark:text-emerald-500">({finishedTasks.length})</span>
                   </div>
                   <span className="text-[10px] font-mono opacity-50 italic">Completed ({finishedHours}h)</span>
                 </div>
@@ -952,8 +976,8 @@ export default function App() {
                       />
                     ))
                   ) : (
-                    <div className="flex-1 border border-dashed border-black/10 rounded-none bg-white/40 flex flex-col items-center justify-center p-8 text-center text-zinc-400">
-                      <p className="text-xs font-bold uppercase tracking-wider text-zinc-800">No Finished Tasks</p>
+                    <div className="flex-1 border border-dashed border-black/10 dark:border-white/10 rounded-none bg-white/40 dark:bg-white/5 flex flex-col items-center justify-center p-8 text-center text-zinc-400 dark:text-zinc-500">
+                      <p className="text-xs font-bold uppercase tracking-wider text-zinc-800 dark:text-zinc-300">No Finished Tasks</p>
                       <p className="text-[10px] mt-1 max-w-[180px] font-sans">Complete tasks to see them archived here.</p>
                     </div>
                   )}

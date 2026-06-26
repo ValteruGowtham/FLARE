@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import Markdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { Task, TaskCategory, TaskStatus } from '../types.js';
 import { 
   AlertTriangle, 
@@ -18,7 +20,8 @@ import {
   Play, 
   Check,
   Calendar,
-  ExternalLink
+  ExternalLink,
+  Copy
 } from 'lucide-react';
 
 interface TaskCardProps {
@@ -34,10 +37,20 @@ export default function TaskCard({ task, onEdit, onDelete, onStatusChange, onSch
   const [isExpanded, setIsExpanded] = useState(false);
   const [timeText, setTimeText] = useState('');
   const [isOverdue, setIsOverdue] = useState(false);
+  const [isCopied, setIsCopied] = useState(false);
   
   const [recipientEmail, setRecipientEmail] = useState('');
   const [sendingDraft, setSendingDraft] = useState(false);
   const [draftSent, setDraftSent] = useState(!!task.extensionEmailSentAt);
+
+  const handleCopyNotes = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (task.notes) {
+      await navigator.clipboard.writeText(task.notes);
+      setIsCopied(true);
+      setTimeout(() => setIsCopied(false), 2000);
+    }
+  };
 
   const handleSendDraftEmail = async () => {
     setSendingDraft(true);
@@ -133,9 +146,9 @@ export default function TaskCard({ task, onEdit, onDelete, onStatusChange, onSch
   const getRiskStyles = () => {
     if (task.status === 'done') {
       return {
-        border: 'border-black/5 opacity-60',
-        badge: 'bg-zinc-100 text-zinc-500 text-[9px]',
-        accent: 'bg-zinc-200',
+        border: 'border-black/10 dark:border-white/10 opacity-60',
+        badge: 'bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 text-[9px]',
+        accent: 'bg-zinc-200 dark:bg-zinc-700',
         badgeLabel: 'Complete'
       };
     }
@@ -157,9 +170,9 @@ export default function TaskCard({ task, onEdit, onDelete, onStatusChange, onSch
         };
       default:
         return {
-          border: 'border-black/10',
-          badge: 'bg-zinc-800 text-white text-[9px] font-black uppercase',
-          accent: 'bg-zinc-800',
+          border: 'border-black/10 dark:border-white/10',
+          badge: 'bg-zinc-800 dark:bg-zinc-700 text-white text-[9px] font-black uppercase',
+          accent: 'bg-zinc-800 dark:bg-zinc-700',
           badgeLabel: 'Stable'
         };
     }
@@ -169,7 +182,7 @@ export default function TaskCard({ task, onEdit, onDelete, onStatusChange, onSch
 
   return (
     <div 
-      className={`bg-white rounded-none border border-black/10 p-5 transition-all duration-200 hover:shadow-md space-y-4 cursor-grab active:cursor-grabbing ${riskStyles.border}`} 
+      className={`bg-white dark:bg-zinc-900 rounded-none border border-black/10 dark:border-white/10 p-5 transition-all duration-200 hover:shadow-md space-y-4 cursor-grab active:cursor-grabbing ${riskStyles.border}`} 
       id={`task-card-${task.id}`}
       draggable
       onDragStart={(e) => {
@@ -180,7 +193,7 @@ export default function TaskCard({ task, onEdit, onDelete, onStatusChange, onSch
       {/* Card Header: Category & Risk Indicators */}
       <div className="flex justify-between items-start" id={`card-header-${task.id}`}>
         <div>
-          <span className="text-[10px] font-bold px-2.5 py-1 bg-zinc-100 uppercase tracking-wider text-zinc-800 border border-black/5">
+          <span className="text-[10px] font-bold px-2.5 py-1 bg-zinc-100 dark:bg-zinc-800 uppercase tracking-wider text-zinc-800 dark:text-zinc-300 border border-black/5 dark:border-white/5">
             {catMeta.label}
           </span>
         </div>
@@ -196,18 +209,30 @@ export default function TaskCard({ task, onEdit, onDelete, onStatusChange, onSch
 
       {/* Task Content */}
       <div className="space-y-1.5" id={`card-content-${task.id}`}>
-        <h3 className={`text-base font-bold text-zinc-950 tracking-tight leading-tight font-sans ${task.status === 'done' ? 'line-through opacity-40 text-zinc-500' : ''}`}>
+        <h3 className={`text-base font-bold text-zinc-950 dark:text-zinc-50 tracking-tight leading-tight font-sans ${task.status === 'done' ? 'line-through opacity-40 text-zinc-500' : ''}`}>
           {task.title}
         </h3>
         {task.description && (
-          <p className="text-xs text-zinc-600 font-sans leading-relaxed line-clamp-3">
+          <p className="text-xs text-zinc-600 dark:text-zinc-400 font-sans leading-relaxed line-clamp-3">
             {task.description}
           </p>
+        )}
+        {task.notes && (
+          <div className="mt-2 text-xs text-zinc-700 dark:text-zinc-300 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 p-3 markdown-body relative group">
+            <button
+              onClick={handleCopyNotes}
+              className="absolute top-2 right-2 p-1.5 bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-400 dark:text-zinc-500 hover:text-black dark:hover:text-white shadow-sm opacity-0 group-hover:opacity-100 transition-opacity"
+              title="Copy Notes"
+            >
+              {isCopied ? <Check className="w-3.5 h-3.5 text-green-600 dark:text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
+            </button>
+            <Markdown remarkPlugins={[remarkGfm]}>{task.notes}</Markdown>
+          </div>
         )}
       </div>
 
       {/* Math & Deadline Metrics */}
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-zinc-500 border-t border-black/5 pt-3 font-mono" id={`card-metrics-${task.id}`}>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-zinc-500 dark:text-zinc-400 border-t border-black/5 dark:border-white/5 pt-3 font-mono" id={`card-metrics-${task.id}`}>
         <div className="flex items-center gap-1">
           <Clock className="w-3.5 h-3.5 text-zinc-400" />
           <span className={isOverdue && task.status !== 'done' ? 'text-red-600 font-bold' : 'opacity-70'}>

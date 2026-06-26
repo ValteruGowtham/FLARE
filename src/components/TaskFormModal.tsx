@@ -8,6 +8,7 @@ interface TaskFormModalProps {
   onSave: (taskData: {
     title: string;
     description?: string;
+    notes?: string;
     deadline: string;
     estimatedEffort: number;
     category: TaskCategory;
@@ -19,6 +20,7 @@ interface TaskFormModalProps {
 export default function TaskFormModal({ isOpen, onClose, onSave, taskToEdit }: TaskFormModalProps) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
+  const [notes, setNotes] = useState('');
   const [deadline, setDeadline] = useState('');
   const [estimatedEffort, setEstimatedEffort] = useState<number>(1);
   const [category, setCategory] = useState<TaskCategory>('assignment');
@@ -30,6 +32,7 @@ export default function TaskFormModal({ isOpen, onClose, onSave, taskToEdit }: T
     if (taskToEdit) {
       setTitle(taskToEdit.title);
       setDescription(taskToEdit.description || '');
+      setNotes(taskToEdit.notes || '');
       // Format deadline date for datetime-local input (YYYY-MM-DDTHH:mm)
       const d = new Date(taskToEdit.deadline);
       const tzOffset = d.getTimezoneOffset() * 60000;
@@ -48,6 +51,7 @@ export default function TaskFormModal({ isOpen, onClose, onSave, taskToEdit }: T
       
       setTitle('');
       setDescription('');
+      setNotes('');
       setDeadline(defaultDeadline);
       setEstimatedEffort(2);
       setCategory('assignment');
@@ -82,6 +86,7 @@ export default function TaskFormModal({ isOpen, onClose, onSave, taskToEdit }: T
       await onSave({
         title: title.trim(),
         description: description.trim() || undefined,
+        notes: notes.trim() || undefined,
         deadline: isoDeadline,
         estimatedEffort,
         category,
@@ -97,17 +102,17 @@ export default function TaskFormModal({ isOpen, onClose, onSave, taskToEdit }: T
   };
 
   return (
-    <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in" id="task-modal-overlay">
-      <div className="bg-white border border-black/15 rounded-none w-full max-w-lg shadow-md overflow-hidden flex flex-col max-h-[90vh]" id="task-modal-card">
+    <div className="fixed inset-0 bg-black/40 dark:bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in" id="task-modal-overlay">
+      <div className="bg-white dark:bg-zinc-950 border border-black/15 dark:border-white/10 rounded-none w-full max-w-lg shadow-md overflow-hidden flex flex-col max-h-[90vh]" id="task-modal-card">
         
         {/* Modal Header */}
-        <div className="border-b border-black/10 px-6 py-4 flex items-center justify-between" id="task-modal-header">
-          <h2 className="text-sm font-black uppercase tracking-wider text-zinc-900">
+        <div className="border-b border-black/10 dark:border-white/10 px-6 py-4 flex items-center justify-between" id="task-modal-header">
+          <h2 className="text-sm font-black uppercase tracking-wider text-zinc-900 dark:text-white">
             {taskToEdit ? 'Modify Companion Task' : 'Deploy New Rescue Task'}
           </h2>
           <button 
             onClick={onClose}
-            className="text-zinc-400 hover:text-black hover:bg-black/5 p-1.5 rounded-none transition cursor-pointer"
+            className="text-zinc-400 hover:text-black dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/5 p-1.5 rounded-none transition cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
@@ -116,64 +121,77 @@ export default function TaskFormModal({ isOpen, onClose, onSave, taskToEdit }: T
         {/* Modal Form */}
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 space-y-5" id="task-modal-form">
           {error && (
-            <div className="p-3 bg-red-50 border border-red-200 text-xs font-bold text-red-700 flex items-start gap-2">
+            <div className="p-3 bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 text-xs font-bold text-red-700 dark:text-red-400 flex items-start gap-2">
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
               <span>{error}</span>
             </div>
           )}
 
           <div>
-            <label className="block text-[9px] font-extrabold text-zinc-800 uppercase tracking-widest mb-1.5">
+            <label className="block text-[9px] font-extrabold text-zinc-800 dark:text-zinc-300 uppercase tracking-widest mb-1.5">
               Task Title
             </label>
             <input
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              className="w-full px-4 py-2.5 bg-zinc-50/50 border border-black/10 rounded-none text-xs focus:outline-none focus:ring-1 focus:ring-black focus:border-black transition font-sans"
+              className="w-full px-4 py-2.5 bg-zinc-50/50 dark:bg-zinc-900 border border-black/10 dark:border-white/10 rounded-none text-xs focus:outline-none focus:ring-1 focus:ring-black dark:focus:ring-white focus:border-black dark:focus:border-white transition font-sans dark:text-white"
               placeholder="e.g., Finalize Q2 Financial Report"
               required
             />
           </div>
 
           <div>
-            <label className="block text-[9px] font-extrabold text-zinc-800 uppercase tracking-widest mb-1.5">
-              Description <span className="text-zinc-400 text-[9px] font-normal lowercase italic">(optional)</span>
+            <label className="block text-[9px] font-extrabold text-zinc-800 dark:text-zinc-300 uppercase tracking-widest mb-1.5">
+              Description <span className="text-zinc-400 dark:text-zinc-500 text-[9px] font-normal lowercase italic">(optional)</span>
             </label>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              className="w-full px-4 py-2.5 bg-zinc-50/50 border border-black/10 rounded-none text-xs focus:outline-none focus:ring-1 focus:ring-black focus:border-black transition font-sans"
-              rows={3}
+              className="w-full px-4 py-2.5 bg-zinc-50/50 dark:bg-zinc-900 border border-black/10 dark:border-white/10 rounded-none text-xs focus:outline-none focus:ring-1 focus:ring-black dark:focus:ring-white focus:border-black dark:focus:border-white transition font-sans dark:text-white"
+              rows={2}
+              placeholder="Short description..."
+            />
+          </div>
+
+          <div>
+            <label className="block text-[9px] font-extrabold text-zinc-800 dark:text-zinc-300 uppercase tracking-widest mb-1.5">
+              Notes (Markdown Supported) <span className="text-zinc-400 dark:text-zinc-500 text-[9px] font-normal lowercase italic">(optional)</span>
+            </label>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              className="w-full px-4 py-2.5 bg-zinc-50/50 dark:bg-zinc-900 border border-black/10 dark:border-white/10 rounded-none text-xs focus:outline-none focus:ring-1 focus:ring-black dark:focus:ring-white focus:border-black dark:focus:border-white transition font-mono dark:text-white"
+              rows={4}
               placeholder="Provide key notes or breakdown list..."
             />
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-[9px] font-extrabold text-zinc-800 uppercase tracking-widest mb-1.5">
+              <label className="block text-[9px] font-extrabold text-zinc-800 dark:text-zinc-300 uppercase tracking-widest mb-1.5">
                 Deadline Date & Time
               </label>
               <div className="relative">
-                <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-zinc-400">
+                <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-zinc-400 dark:text-zinc-500">
                   <Calendar className="w-4 h-4" />
                 </span>
                 <input
                   type="datetime-local"
                   value={deadline}
                   onChange={(e) => setDeadline(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2.5 bg-zinc-50/50 border border-black/10 rounded-none text-xs focus:outline-none focus:ring-1 focus:ring-black focus:border-black transition font-mono"
+                  className="w-full pl-10 pr-4 py-2.5 bg-zinc-50/50 dark:bg-zinc-900 border border-black/10 dark:border-white/10 rounded-none text-xs focus:outline-none focus:ring-1 focus:ring-black dark:focus:ring-white focus:border-black dark:focus:border-white transition font-mono dark:text-white dark:[color-scheme:dark]"
                   required
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-[9px] font-extrabold text-zinc-800 uppercase tracking-widest mb-1.5">
-                Estimated Effort <span className="text-zinc-400 font-normal lowercase italic">(hours)</span>
+              <label className="block text-[9px] font-extrabold text-zinc-800 dark:text-zinc-300 uppercase tracking-widest mb-1.5">
+                Estimated Effort <span className="text-zinc-400 dark:text-zinc-500 font-normal lowercase italic">(hours)</span>
               </label>
               <div className="relative">
-                <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-zinc-400">
+                <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-zinc-400 dark:text-zinc-500">
                   <Clock className="w-4 h-4" />
                 </span>
                 <input
@@ -182,7 +200,7 @@ export default function TaskFormModal({ isOpen, onClose, onSave, taskToEdit }: T
                   onChange={(e) => setEstimatedEffort(parseFloat(e.target.value) || 0)}
                   min="0.1"
                   step="0.5"
-                  className="w-full pl-10 pr-4 py-2.5 bg-zinc-50/50 border border-black/10 rounded-none text-xs focus:outline-none focus:ring-1 focus:ring-black focus:border-black transition font-mono"
+                  className="w-full pl-10 pr-4 py-2.5 bg-zinc-50/50 dark:bg-zinc-900 border border-black/10 dark:border-white/10 rounded-none text-xs focus:outline-none focus:ring-1 focus:ring-black dark:focus:ring-white focus:border-black dark:focus:border-white transition font-mono dark:text-white"
                   required
                 />
               </div>
@@ -191,13 +209,13 @@ export default function TaskFormModal({ isOpen, onClose, onSave, taskToEdit }: T
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-[9px] font-extrabold text-zinc-800 uppercase tracking-widest mb-1.5">
+              <label className="block text-[9px] font-extrabold text-zinc-800 dark:text-zinc-300 uppercase tracking-widest mb-1.5">
                 Category
               </label>
               <select
                 value={category}
                 onChange={(e) => setCategory(e.target.value as TaskCategory)}
-                className="w-full px-4 py-2.5 bg-zinc-50/50 border border-black/10 rounded-none text-xs focus:outline-none focus:ring-1 focus:ring-black focus:border-black transition font-sans"
+                className="w-full px-4 py-2.5 bg-zinc-50/50 dark:bg-zinc-900 border border-black/10 dark:border-white/10 rounded-none text-xs focus:outline-none focus:ring-1 focus:ring-black dark:focus:ring-white focus:border-black dark:focus:border-white transition font-sans dark:text-white"
               >
                 <option value="assignment">📚 Assignment</option>
                 <option value="work">💼 Work / Corporate</option>
@@ -209,13 +227,13 @@ export default function TaskFormModal({ isOpen, onClose, onSave, taskToEdit }: T
             </div>
 
             <div>
-              <label className="block text-[9px] font-extrabold text-zinc-800 uppercase tracking-widest mb-1.5">
+              <label className="block text-[9px] font-extrabold text-zinc-800 dark:text-zinc-300 uppercase tracking-widest mb-1.5">
                 Status
               </label>
               <select
                 value={status}
                 onChange={(e) => setStatus(e.target.value as TaskStatus)}
-                className="w-full px-4 py-2.5 bg-zinc-50/50 border border-black/10 rounded-none text-xs focus:outline-none focus:ring-1 focus:ring-black focus:border-black transition font-sans"
+                className="w-full px-4 py-2.5 bg-zinc-50/50 dark:bg-zinc-900 border border-black/10 dark:border-white/10 rounded-none text-xs focus:outline-none focus:ring-1 focus:ring-black dark:focus:ring-white focus:border-black dark:focus:border-white transition font-sans dark:text-white"
               >
                 <option value="not started">💤 Not Started</option>
                 <option value="in progress">⚡ In Progress</option>
@@ -226,11 +244,11 @@ export default function TaskFormModal({ isOpen, onClose, onSave, taskToEdit }: T
         </form>
 
         {/* Modal Footer */}
-        <div className="border-t border-black/10 px-6 py-4 flex items-center justify-end gap-3" id="task-modal-footer">
+        <div className="border-t border-black/10 dark:border-white/10 px-6 py-4 flex items-center justify-end gap-3" id="task-modal-footer">
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2.5 text-zinc-600 hover:bg-black/5 rounded-none text-xs font-bold uppercase tracking-wider transition cursor-pointer"
+            className="px-4 py-2.5 text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/5 rounded-none text-xs font-bold uppercase tracking-wider transition cursor-pointer"
           >
             Cancel
           </button>
@@ -238,7 +256,7 @@ export default function TaskFormModal({ isOpen, onClose, onSave, taskToEdit }: T
             type="button"
             onClick={handleSubmit}
             disabled={isSubmitting}
-            className="bg-black hover:bg-zinc-800 disabled:bg-zinc-400 text-white font-bold text-xs uppercase tracking-widest px-5 py-2.5 rounded-none transition flex items-center gap-1.5 cursor-pointer"
+            className="bg-black dark:bg-white hover:bg-zinc-800 dark:hover:bg-zinc-200 disabled:bg-zinc-400 dark:disabled:bg-zinc-600 text-white dark:text-black font-bold text-xs uppercase tracking-widest px-5 py-2.5 rounded-none transition flex items-center gap-1.5 cursor-pointer"
             id="save-task-button"
           >
             {isSubmitting ? (

@@ -26,6 +26,7 @@ export interface Task {
   draftRescheduleEmailBody?: string | null;
   extensionEmailSentAt?: string;
   manualRiskOverride?: boolean;
+  notes?: string;
 }
 
 export interface UserProfile {

@@ -81,7 +81,7 @@ export default function AuthScreen({ onContinueAsGuest }: AuthScreenProps) {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#F9F8F6] px-4 py-12" id="auth-screen-container">
+    <div className="min-h-screen flex items-center justify-center bg-[#F9F8F6] dark:bg-zinc-950 dark:text-zinc-100 px-4 py-12" id="auth-screen-container">
       <div className="w-full max-w-md bg-white border border-black/10 rounded-none shadow-xs overflow-hidden" id="auth-card">
         
         {/* Flare branding header */}
