@@ -1,6 +1,5 @@
-import { initializeApp, getApps } from 'firebase-admin/app';
+import { initializeApp, getApps, getApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
-import { getAuth } from 'firebase-admin/auth';
 import fs from 'fs';
 import path from 'path';
 
@@ -15,15 +14,20 @@ try {
     databaseId = config.firestoreDatabaseId;
   }
 } catch (err) {
-  console.error('Failed to read firebase config in admin initialization:', err);
+  console.error('Failed to read firebase config:', err);
 }
 
 if (getApps().length === 0) {
-  initializeApp({
-    projectId
-  });
+  initializeApp({ projectId });
 }
 
-export const dbAdmin = getFirestore(getApps()[0], databaseId);
-export const authAdmin = getAuth();
-
+async function test() {
+  try {
+    const db = getFirestore(getApp(), databaseId);
+    const doc = await db.collection('user_tokens').doc('test').get();
+    console.log("Success with databaseId:", doc.exists);
+  } catch (e) {
+    console.error("Error with databaseId:", e);
+  }
+}
+test();

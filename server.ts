@@ -5,6 +5,23 @@ import { evaluateTaskRisk, TaskEvaluationInput } from './server/riskScorer.js';
 import { storeUserGoogleTokens, runAutonomousSweep, sendEmailServer, refreshGoogleAccessToken } from './server/rescueAgent.js';
 import { dbAdmin, authAdmin } from './server/firebaseAdmin.js';
 
+// Authentication Middleware
+const requireAuth = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Unauthorized: Missing or invalid token' });
+  }
+  const token = authHeader.split('Bearer ')[1];
+  try {
+    const decodedToken = await authAdmin.verifyIdToken(token);
+    (req as any).user = decodedToken;
+    next();
+  } catch (error) {
+    // Intentionally generic error to not leak token states
+    return res.status(401).json({ error: 'Unauthorized: Invalid token' });
+  }
+};
+
 async function startServer() {
   const app = express();
   const PORT = 3000;
@@ -64,14 +81,27 @@ async function startServer() {
     }
   });
 
-  // Google OAuth URL generation
-  app.get('/api/auth/google/url', (req, res) => {
-    try {
-      const { userId } = req.query;
-      if (!userId) {
-        return res.status(400).json({ error: 'Missing userId parameter' });
-      }
+  const pendingTokens = new Map<string, any>();
 
+  // Google OAuth Status Polling Endpoint
+  app.get('/api/auth/google/status', requireAuth, (req, res) => {
+    try {
+      const userId = (req as any).user.uid;
+      if (pendingTokens.has(userId)) {
+        const tokens = pendingTokens.get(userId);
+        pendingTokens.delete(userId);
+        return res.json({ success: true, tokens });
+      }
+      return res.json({ success: false });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Google OAuth URL generation (Protected by auth middleware)
+  app.get('/api/auth/google/url', requireAuth, (req, res) => {
+    try {
+      const userId = (req as any).user.uid;
       const redirectUri = `${process.env.APP_URL || 'http://localhost:3000'}/api/auth/google/callback`;
       const params = new URLSearchParams({
         client_id: process.env.GOOGLE_CLIENT_ID || '',
@@ -129,8 +159,13 @@ async function startServer() {
 
       const tokens = await response.json();
       
-      // Save tokens in Firestore securely
-      await storeUserGoogleTokens(String(userId), tokens);
+      // Store in memory map for frontend polling
+      pendingTokens.set(String(userId), tokens);
+
+      // Instead of using dbAdmin (which lacks IAM permissions for this database),
+      // we send the tokens back to the client via postMessage, and the client
+      // will store them securely in its user_tokens/{userId} document.
+      // await storeUserGoogleTokens(String(userId), tokens);
 
       // Send success message and postMessage to parent window
       return res.send(`
@@ -146,8 +181,10 @@ async function startServer() {
                 if (window.opener) {
                   window.opener.postMessage({
                     type: 'OAUTH_AUTH_SUCCESS',
-                    accessToken: ${JSON.stringify(tokens.access_token)}
-                  }, "*");
+                    accessToken: '${tokens.access_token}',
+                    refreshToken: '${tokens.refresh_token || ""}',
+                    scopes: '${tokens.scope || ""}'
+                  }, '*');
                 }
               } catch (e) {
                 console.error("Failed to post message to opener:", e);
@@ -173,6 +210,48 @@ async function startServer() {
     }
   });
 
+  // Revoke Google OAuth Token
+  app.post('/api/auth/google/revoke', requireAuth, async (req, res) => {
+    try {
+      const { tokenToRevoke } = req.body;
+      if (tokenToRevoke) {
+        // Call Google revocation endpoint
+        await fetch(`https://oauth2.googleapis.com/revoke?token=${tokenToRevoke}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+        });
+      }
+      return res.json({ success: true });
+    } catch (error: any) {
+      console.error('Error revoking Google token:', error);
+      return res.status(500).json({ error: 'Failed to revoke token' });
+    }
+  });
+
+  // Account Deletion Endpoint
+  app.post('/api/account/delete', requireAuth, async (req, res) => {
+    try {
+      const userId = (req as any).user.uid;
+      const { tokenToRevoke } = req.body;
+      
+      // 1. Revoke Google OAuth Token if provided
+      if (tokenToRevoke) {
+        await fetch(`https://oauth2.googleapis.com/revoke?token=${tokenToRevoke}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+        }).catch(err => console.error('Failed to revoke Google token during account deletion:', err));
+      }
+      
+      // 2. Delete the user from Firebase Auth
+      await authAdmin.deleteUser(userId);
+      
+      return res.json({ success: true });
+    } catch (error: any) {
+      console.error('Error deleting account:', error);
+      return res.status(500).json({ error: 'Failed to delete account' });
+    }
+  });
+
   // Secure Autonomous Sweep endpoint (Cron trigger)
   app.post('/api/agent/sweep', async (req, res) => {
     try {
@@ -192,82 +271,220 @@ async function startServer() {
   });
 
   // Dev Sweep Trigger (Manual Trigger Endpoint for preview mode)
-  app.post('/api/dev/sweep', async (req, res) => {
+  app.post('/api/dev/sweep', requireAuth, async (req, res) => {
     try {
-      const result = await runAutonomousSweep();
-      return res.json(result);
+      const { userId, userEmail, googleAccessToken, googleRefreshToken, tasks } = req.body;
+
+      if (!googleAccessToken && !googleRefreshToken) {
+        return res.status(400).json({ error: 'Google account not connected.' });
+      }
+
+      let accessToken = googleAccessToken;
+      let newAccessToken = null;
+      if (googleRefreshToken) {
+        try {
+           accessToken = await refreshGoogleAccessToken(googleRefreshToken);
+           newAccessToken = accessToken;
+        } catch (e) {
+           console.error("Failed to refresh token in sweep proxy", e);
+        }
+      }
+
+      const result = await runAutonomousSweep(userId, userEmail, accessToken, tasks || []);
+      
+      const payload: any = { ...result };
+      if (newAccessToken) {
+        payload.newAccessToken = newAccessToken;
+      }
+      
+      return res.json(payload);
     } catch (error: any) {
       console.error('API Error in /api/dev/sweep:', error);
       return res.status(500).json({ error: error.message || 'Internal Server Error' });
     }
   });
 
-  // Send draft email endpoint
-  app.post('/api/tasks/send-draft', async (req, res) => {
+  // Calendar FreeBusy Proxy Endpoint
+  app.post('/api/calendar/freebusy', requireAuth, async (req, res) => {
     try {
-      const { taskId, userId, recipientEmail } = req.body;
-      if (!taskId || !userId) {
-        return res.status(400).json({ error: 'Missing taskId or userId' });
+      const { timeMin, timeMax, googleAccessToken, googleRefreshToken } = req.body;
+      
+      if (!timeMin || !timeMax) {
+        return res.status(400).json({ error: 'Missing timeMin or timeMax' });
       }
 
-      // 1. Get task details
-      const taskDoc = await dbAdmin.collection('tasks').doc(taskId).get();
-      if (!taskDoc.exists) {
-        return res.status(404).json({ error: 'Task not found' });
-      }
-      const taskData = taskDoc.data();
-      if (taskData?.userId !== userId) {
-        return res.status(403).json({ error: 'Unauthorized' });
-      }
-
-      if (!taskData.draftRescheduleEmailSubject || !taskData.draftRescheduleEmailBody) {
-        return res.status(400).json({ error: 'No draft extension email exists for this task.' });
-      }
-
-      // 2. Fetch Google Tokens
-      const tokenDoc = await dbAdmin.collection('user_tokens').doc(userId).get();
-      if (!tokenDoc.exists) {
+      if (!googleAccessToken && !googleRefreshToken) {
         return res.status(400).json({ error: 'Google account not connected.' });
       }
-      const tokenData = tokenDoc.data();
-      if (!tokenData?.refreshToken) {
-        return res.status(400).json({ error: 'No refresh token available.' });
-      }
 
-      // 3. Refresh and send
-      const accessToken = await refreshGoogleAccessToken(tokenData.refreshToken);
-      
-      // Default to input recipient, or fall back to user email
-      let targetRecipient = recipientEmail || '';
-      if (!targetRecipient) {
+      let accessToken = googleAccessToken;
+      let newAccessToken = null;
+
+      let response = await fetch('https://www.googleapis.com/calendar/v3/freeBusy', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          timeMin,
+          timeMax,
+          items: [{ id: 'primary' }]
+        })
+      });
+
+      if (response.status === 401 && googleRefreshToken) {
         try {
-          const userRecord = await authAdmin.getUser(userId);
-          targetRecipient = userRecord.email || '';
-        } catch (authErr) {
-          console.error('Failed to get user email in send-draft:', authErr);
+           accessToken = await refreshGoogleAccessToken(googleRefreshToken);
+           newAccessToken = accessToken;
+           // Retry with new token
+           response = await fetch('https://www.googleapis.com/calendar/v3/freeBusy', {
+             method: 'POST',
+             headers: {
+               'Authorization': `Bearer ${accessToken}`,
+               'Content-Type': 'application/json'
+             },
+             body: JSON.stringify({
+               timeMin,
+               timeMax,
+               items: [{ id: 'primary' }]
+             })
+           });
+        } catch (e) {
+           console.error("Failed to refresh token in freebusy proxy", e);
         }
       }
 
-      if (!targetRecipient) {
-        return res.status(400).json({ error: 'Recipient email not specified and user email not found.' });
+      if (!response.ok) {
+        const errorText = await response.text();
+        return res.status(response.status).json({ error: `Google API Error: ${errorText}` });
       }
 
-      await sendEmailServer(
-        accessToken,
-        targetRecipient,
-        taskData.draftRescheduleEmailSubject,
-        taskData.draftRescheduleEmailBody
-      );
+      const data = await response.json();
+      if (newAccessToken) {
+        data.newAccessToken = newAccessToken;
+      }
+      return res.json(data);
+    } catch (error: any) {
+      console.error('API Error in /api/calendar/freebusy:', error);
+      return res.status(500).json({ error: error.message || 'Internal Server Error' });
+    }
+  });
 
-      // 4. Update task to remove the draft details so they know it was sent
-      await dbAdmin.collection('tasks').doc(taskId).update({
-        draftRescheduleEmailSubject: null,
-        draftRescheduleEmailBody: null,
-        extensionEmailSentAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
+  // Create Calendar Event Proxy Endpoint
+  app.post('/api/calendar/event', requireAuth, async (req, res) => {
+    try {
+      const { summary, description, start, end, googleAccessToken, googleRefreshToken } = req.body;
+      
+      if (!summary || !start || !end) {
+        return res.status(400).json({ error: 'Missing summary, start, or end' });
+      }
+
+      if (!googleAccessToken && !googleRefreshToken) {
+        return res.status(400).json({ error: 'Google account not connected.' });
+      }
+
+      let accessToken = googleAccessToken;
+      let newAccessToken = null;
+
+      const eventPayload = {
+        summary,
+        description: description || 'Scheduled via Flare AI Triage Engine',
+        start: { dateTime: start },
+        end: { dateTime: end }
+      };
+
+      let response = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(eventPayload)
       });
 
-      return res.json({ status: 'success' });
+      if (response.status === 401 && googleRefreshToken) {
+        try {
+           accessToken = await refreshGoogleAccessToken(googleRefreshToken);
+           newAccessToken = accessToken;
+           // Retry with new token
+           response = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
+             method: 'POST',
+             headers: {
+               'Authorization': `Bearer ${accessToken}`,
+               'Content-Type': 'application/json'
+             },
+             body: JSON.stringify(eventPayload)
+           });
+        } catch (e) {
+           console.error("Failed to refresh token in event proxy", e);
+        }
+      }
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        return res.status(response.status).json({ error: `Google API Error: ${errorText}` });
+      }
+
+      const data = await response.json();
+      if (newAccessToken) {
+        data.newAccessToken = newAccessToken;
+      }
+      return res.json(data);
+    } catch (error: any) {
+      console.error('API Error in /api/calendar/event:', error);
+      return res.status(500).json({ error: error.message || 'Internal Server Error' });
+    }
+  });
+
+  // Send draft email endpoint
+  app.post('/api/tasks/send-draft', requireAuth, async (req, res) => {
+    try {
+      const { draftSubject, draftBody, recipientEmail, googleAccessToken, googleRefreshToken } = req.body;
+      
+      if (!draftSubject || !draftBody) {
+        return res.status(400).json({ error: 'Missing draft subject or body' });
+      }
+
+      if (!googleAccessToken && !googleRefreshToken) {
+        return res.status(400).json({ error: 'Google account not connected.' });
+      }
+
+      let accessToken = googleAccessToken;
+      let newAccessToken = null;
+
+      let targetRecipient = recipientEmail || '';
+      if (!targetRecipient) {
+        return res.status(400).json({ error: 'Recipient email not specified.' });
+      }
+
+      try {
+        await sendEmailServer(
+          accessToken,
+          targetRecipient,
+          draftSubject,
+          draftBody
+        );
+      } catch (err: any) {
+        if (err.message.includes('401') && googleRefreshToken) {
+           try {
+              accessToken = await refreshGoogleAccessToken(googleRefreshToken);
+              newAccessToken = accessToken;
+              await sendEmailServer(
+                accessToken,
+                targetRecipient,
+                draftSubject,
+                draftBody
+              );
+           } catch (refreshErr) {
+              throw err; // throw original
+           }
+        } else {
+           throw err;
+        }
+      }
+
+      return res.json({ status: 'success', newAccessToken });
     } catch (error: any) {
       console.error('Error sending draft email:', error);
       return res.status(500).json({ error: error.message || 'Internal Server Error' });
@@ -289,7 +506,7 @@ async function startServer() {
       });
       
       const response = await ai.models.generateContent({
-        model: 'gemini-3.5-flash',
+        model: 'gemini-2.5-flash',
         contents: [
           { inlineData: { data: audioBase64, mimeType } },
           { text: `Transcribe and analyze this voice command for a task management app (Flare). The current time is ${currentTime}. If the user wants to create a task, extract the details (title, description, estimatedEffort in hours, and deadline in ISO 8601). If it's a general question or chit-chat, provide a friendly, short response in the 'message' field.` }

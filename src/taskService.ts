@@ -211,9 +211,17 @@ export async function createTask(
   }
 
   // Auth mode
+  // Sanitize undefined fields
+  const safeData = { ...taskData };
+  Object.keys(safeData).forEach(key => {
+    if (safeData[key as keyof typeof safeData] === undefined) {
+      delete safeData[key as keyof typeof safeData];
+    }
+  });
+
   const taskToSave = {
     userId,
-    ...taskData,
+    ...safeData,
     riskScore: evaluation.riskScore,
     riskReasoning: evaluation.reasoning,
     createdAt: nowStr,
@@ -304,13 +312,13 @@ export async function updateTask(
 
   // Auth mode
   const { id, ...docData } = fullyUpdatedTask;
-  // Firestore doesn't like undefined properties, ensure null instead
-  const sanitizedDocData = {
-    ...docData,
-    busyIntervals: docData.busyIntervals || null,
-    scheduledEventId: docData.scheduledEventId || null,
-    scheduledEventLink: docData.scheduledEventLink || null
-  };
+  // Firestore doesn't like undefined properties, ensure they are deleted
+  const sanitizedDocData = { ...docData };
+  Object.keys(sanitizedDocData).forEach(key => {
+    if (sanitizedDocData[key as keyof typeof sanitizedDocData] === undefined) {
+      delete sanitizedDocData[key as keyof typeof sanitizedDocData];
+    }
+  });
   await updateDoc(doc(db, 'tasks', taskId), sanitizedDocData);
 
   // Update local cache

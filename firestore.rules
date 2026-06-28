@@ -1,0 +1,53 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Global Safety Net: Default deny all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // 2. Tasks Collection
+    match /tasks/{taskId} {
+      // Allow read if the user is signed in and is the owner of the task
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+      
+      // Allow create if the user is signed in and the document's userId matches their UID
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      
+      // Allow update/delete if the user is signed in and they own the existing document
+      // and they are not trying to change the userId to someone else's.
+      allow update: if isSignedIn() && resource.data.userId == request.auth.uid && request.resource.data.userId == request.auth.uid;
+      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+    }
+
+    // 3. Habits Collection
+    match /habits/{habitId} {
+      // Allow read if the user is signed in and is the owner of the habit
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+      
+      // Allow create if the user is signed in and the document's userId matches their UID
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      
+      // Allow update/delete if they own it and are not transferring ownership
+      allow update: if isSignedIn() && resource.data.userId == request.auth.uid && request.resource.data.userId == request.auth.uid;
+      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+    }
+
+    // 4. User Tokens Collection
+    match /user_tokens/{userId} {
+      // The user can read their own tokens (doc ID matches their auth UID)
+      allow read: if isOwner(userId);
+      // The server writes to this, but we'll allow the user to write to their own path just in case
+      allow write: if isOwner(userId);
+    }
+  }
+}

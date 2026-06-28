@@ -24,6 +24,8 @@ import {
   Copy
 } from 'lucide-react';
 
+import { auth } from '../firebase.js';
+
 interface TaskCardProps {
   key?: string;
   task: Task;
@@ -55,21 +57,67 @@ export default function TaskCard({ task, onEdit, onDelete, onStatusChange, onSch
   const handleSendDraftEmail = async () => {
     setSendingDraft(true);
     try {
+      const token = await auth.currentUser?.getIdToken();
+      const headers: HeadersInit = {
+        'Content-Type': 'application/json'
+      };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      let googleTokens = { accessToken: '', refreshToken: '' };
+      const { db } = await import('../firebase');
+      const { doc, getDoc, updateDoc, setDoc } = await import('firebase/firestore');
+      
+      if (auth.currentUser) {
+        const tokenDoc = await getDoc(doc(db, 'user_tokens', auth.currentUser.uid));
+        if (tokenDoc.exists()) {
+          const data = tokenDoc.data();
+          const cachedToken = localStorage.getItem('google_calendar_access_token');
+          googleTokens.accessToken = cachedToken || data.accessToken || '';
+          googleTokens.refreshToken = data.refreshToken || '';
+        }
+      }
+      
+      const fallbackCachedToken = localStorage.getItem('google_calendar_access_token');
+      if (!googleTokens.accessToken && fallbackCachedToken) {
+        googleTokens.accessToken = fallbackCachedToken;
+      }
+
       const response = await fetch('/api/tasks/send-draft', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
+        headers,
         body: JSON.stringify({
-          taskId: task.id,
-          userId: task.userId,
-          recipientEmail: recipientEmail
+          draftSubject: task.draftRescheduleEmailSubject,
+          draftBody: task.draftRescheduleEmailBody,
+          recipientEmail: recipientEmail,
+          googleAccessToken: googleTokens.accessToken,
+          googleRefreshToken: googleTokens.refreshToken
         })
       });
 
       if (!response.ok) {
         const data = await response.json();
         throw new Error(data.error || 'Failed to send draft');
+      }
+
+      const data = await response.json();
+      
+      if (data.newAccessToken && auth.currentUser) {
+        await setDoc(doc(db, 'user_tokens', auth.currentUser.uid), {
+          accessToken: data.newAccessToken,
+          updatedAt: new Date().toISOString()
+        }, { merge: true }).catch(console.error);
+      }
+
+      // Update task in Firestore to remove draft
+      if (auth.currentUser) {
+        await updateDoc(doc(db, 'tasks', task.id), {
+          draftRescheduleEmailSubject: null,
+          draftRescheduleEmailBody: null,
+          extensionEmailSentAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        });
       }
 
       setDraftSent(true);
