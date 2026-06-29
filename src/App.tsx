@@ -457,14 +457,16 @@ export default function App() {
       const tokenDoc = await getDoc(doc(db, 'user_tokens', user.uid));
       if (tokenDoc.exists()) {
         const data = tokenDoc.data();
-        const cachedToken = getCachedAccessToken();
-        googleTokens.accessToken = cachedToken || data.accessToken || '';
+        // Prefer Firestore token — the server keeps it refreshed.
+        // Only fall back to localStorage if Firestore has no accessToken.
+        googleTokens.accessToken = data.accessToken || getCachedAccessToken() || '';
         googleTokens.refreshToken = data.refreshToken || '';
       }
-      
-      const fallbackCachedToken = getCachedAccessToken();
-      if (!googleTokens.accessToken && fallbackCachedToken) {
-        googleTokens.accessToken = fallbackCachedToken;
+
+      // If Firestore had nothing at all, try the local cache
+      if (!googleTokens.accessToken && !googleTokens.refreshToken) {
+        const cachedToken = getCachedAccessToken();
+        if (cachedToken) googleTokens.accessToken = cachedToken;
       }
 
       const activeTasks = tasks.filter(t => t.status !== 'done');
@@ -582,6 +584,7 @@ export default function App() {
   const handleSaveTask = async (taskData: {
     title: string;
     description?: string;
+    notes?: string;
     deadline: string;
     estimatedEffort: number;
     category: TaskCategory;
@@ -959,7 +962,7 @@ export default function App() {
                 AI Diagnostic
               </p>
               <p className="text-xs italic font-serif text-zinc-800 line-clamp-2">
-                "{pinnedTask.riskReasoning}"
+                &ldquo;{pinnedTask.riskReasoning}&rdquo;
               </p>
             </div>
 

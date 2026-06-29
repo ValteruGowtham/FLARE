@@ -1,5 +1,4 @@
 import { auth, googleProvider } from './firebase.js';
-import { signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
 import { mergeIntervals, calculateAvailableHours, findNextFreeSlot, BusyInterval } from './sharedUtils.js';
 
 let cachedAccessToken: string | null = typeof window !== 'undefined' ? localStorage.getItem('google_calendar_access_token') : null;
@@ -24,6 +23,85 @@ export function setCachedAccessToken(token: string | null) {
     } else {
       localStorage.removeItem('google_calendar_access_token');
     }
+  }
+}
+
+/**
+ * Read the user's stored Google OAuth tokens from Firestore.
+ * Prefers Firestore (kept fresh by server-side refresh flows) over the local
+ * cache. Falls back to `localFallbackToken` only when Firestore has nothing.
+ */
+async function getStoredGoogleTokens(
+  localFallbackToken?: string | null
+): Promise<{ accessToken: string; refreshToken: string }> {
+  const result = { accessToken: '', refreshToken: '' };
+  try {
+    const { db } = await import('./firebase');
+    const { doc, getDoc, setDoc } = await import('firebase/firestore');
+    if (auth.currentUser) {
+      const tokenDoc = await getDoc(doc(db, 'user_tokens', auth.currentUser.uid));
+      if (tokenDoc.exists()) {
+        const data = tokenDoc.data();
+        // Prefer Firestore token — the server keeps it refreshed via auto-refresh.
+        // Only fall back to local cache when Firestore has no accessToken yet.
+        result.accessToken = data.accessToken || localFallbackToken || '';
+        result.refreshToken = data.refreshToken || '';
+      } else if (localFallbackToken) {
+        // No Firestore record yet — bootstrap it from the local cache.
+        result.accessToken = localFallbackToken;
+        await setDoc(
+          doc(db, 'user_tokens', auth.currentUser.uid),
+          { accessToken: localFallbackToken, updatedAt: new Date().toISOString() },
+          { merge: true }
+        ).catch(console.error);
+      }
+    }
+  } catch (e) {
+    console.warn('[calendarService] Failed to read Google tokens from Firestore:', e);
+    result.accessToken = localFallbackToken || '';
+  }
+  return result;
+}
+
+/**
+ * Persist a newly server-refreshed access token to both localStorage and Firestore.
+ */
+async function persistRefreshedToken(newToken: string): Promise<void> {
+  setCachedAccessToken(newToken);
+  try {
+    const { db } = await import('./firebase');
+    const { doc, setDoc } = await import('firebase/firestore');
+    if (auth.currentUser) {
+      await setDoc(
+        doc(db, 'user_tokens', auth.currentUser.uid),
+        { accessToken: newToken, updatedAt: new Date().toISOString() },
+        { merge: true }
+      );
+    }
+  } catch (e) {
+    console.warn('[calendarService] Failed to persist refreshed token to Firestore:', e);
+  }
+}
+
+/**
+ * Clear only the expired access token from cache and Firestore.
+ * Deliberately preserves the refreshToken so the server can still recover
+ * without requiring the user to re-authorize from scratch.
+ */
+async function clearExpiredAccessToken(): Promise<void> {
+  setCachedAccessToken(null);
+  try {
+    const { db } = await import('./firebase');
+    const { doc, setDoc } = await import('firebase/firestore');
+    if (auth.currentUser) {
+      await setDoc(
+        doc(db, 'user_tokens', auth.currentUser.uid),
+        { accessToken: '', updatedAt: new Date().toISOString() },
+        { merge: true }
+      );
+    }
+  } catch (e) {
+    console.warn('[calendarService] Failed to clear expired access token from Firestore:', e);
   }
 }
 
@@ -175,7 +253,8 @@ export async function disconnectCalendar(userId: string): Promise<void> {
 }
 
 /**
- * Fetch busy slots from Google Calendar Free/Busy API
+ * Fetch busy slots from Google Calendar Free/Busy API via the server proxy.
+ * Token priority: Firestore (server-refreshed) → localStorage fallback.
  */
 export async function fetchFreeBusy(
   token: string | null,
@@ -184,33 +263,7 @@ export async function fetchFreeBusy(
 ): Promise<BusyInterval[]> {
   try {
     const headers = await getAuthHeaders();
-    
-    let googleTokens = { accessToken: '', refreshToken: '' };
-    try {
-      const { db } = await import('./firebase');
-      const { doc, getDoc, setDoc } = await import('firebase/firestore');
-      const { auth } = await import('./firebase');
-      if (auth.currentUser) {
-        const tokenDoc = await getDoc(doc(db, 'user_tokens', auth.currentUser.uid));
-        if (tokenDoc.exists()) {
-          const data = tokenDoc.data();
-          // Always prefer the provided local token, which is most likely freshest after a new sign-in
-          googleTokens.accessToken = token || data.accessToken || '';
-          googleTokens.refreshToken = data.refreshToken || '';
-        }
-      }
-      
-      // If Firestore doesn't have it but we have a local cached token, use it and update Firestore
-      if (!googleTokens.accessToken && token && auth.currentUser) {
-         googleTokens.accessToken = token;
-         await setDoc(doc(db, 'user_tokens', auth.currentUser.uid), {
-            accessToken: token,
-            updatedAt: new Date().toISOString()
-         }, { merge: true }).catch(console.error);
-      }
-    } catch (e) {
-      console.warn("Failed to read user_tokens from client:", e);
-    }
+    const googleTokens = await getStoredGoogleTokens(token);
 
     if (!googleTokens.accessToken && !googleTokens.refreshToken) {
       return [];
@@ -218,10 +271,7 @@ export async function fetchFreeBusy(
 
     const response = await fetch('/api/calendar/freebusy', {
       method: 'POST',
-      headers: {
-        ...headers,
-        'Content-Type': 'application/json'
-      },
+      headers: { ...headers, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         timeMin,
         timeMax,
@@ -232,51 +282,32 @@ export async function fetchFreeBusy(
 
     if (!response.ok) {
       if (response.status === 401) {
-         setCachedAccessToken(null);
-         try {
-           const { db } = await import('./firebase');
-           const { doc, deleteDoc } = await import('firebase/firestore');
-           const { auth } = await import('./firebase');
-           if (auth.currentUser) {
-              await deleteDoc(doc(db, 'user_tokens', auth.currentUser.uid)).catch(console.error);
-           }
-         } catch(e) {}
-         return []; // Return empty array since not connected effectively
+        // Only clear the expired accessToken — preserve the refreshToken so
+        // the next server-side refresh attempt can still recover.
+        await clearExpiredAccessToken();
+        return [];
       }
       const errorText = await response.text();
-      throw new Error(`Failed to fetch freebusy from proxy: ${response.status} ${response.statusText} - ${errorText}`);
+      throw new Error(`FreeBusy proxy error ${response.status}: ${errorText}`);
     }
 
     const data = await response.json();
-    
-    // If the server refreshed the token, save it
+
+    // Server auto-refreshed the token — persist the new one
     if (data.newAccessToken) {
-      setCachedAccessToken(data.newAccessToken);
-      try {
-        const { db } = await import('./firebase');
-        const { doc, setDoc } = await import('firebase/firestore');
-        const { auth } = await import('./firebase');
-        if (auth.currentUser) {
-          await setDoc(doc(db, 'user_tokens', auth.currentUser.uid), {
-            accessToken: data.newAccessToken,
-            updatedAt: new Date().toISOString()
-          }, { merge: true });
-        }
-      } catch (e) {
-        console.warn("Failed to update new access token in Firestore", e);
-      }
+      await persistRefreshedToken(data.newAccessToken);
     }
 
-    const busy = data.calendars?.primary?.busy || [];
-    return busy;
+    return data.calendars?.primary?.busy || [];
   } catch (error) {
-    console.error('Error in fetchFreeBusy:', error);
+    console.error('[calendarService] Error in fetchFreeBusy:', error);
     throw error;
   }
 }
 
 /**
- * Create a calendar event on Google Calendar primary calendar
+ * Create a calendar event on Google Calendar primary calendar via the server proxy.
+ * Token priority: Firestore (server-refreshed) → localStorage fallback.
  */
 export async function createCalendarEvent(
   token: string | null,
@@ -287,42 +318,15 @@ export async function createCalendarEvent(
 ): Promise<{ id: string; htmlLink: string }> {
   try {
     const headers = await getAuthHeaders();
-    
-    let googleTokens = { accessToken: '', refreshToken: '' };
-    try {
-      const { db } = await import('./firebase');
-      const { doc, getDoc, setDoc } = await import('firebase/firestore');
-      const { auth } = await import('./firebase');
-      if (auth.currentUser) {
-        const tokenDoc = await getDoc(doc(db, 'user_tokens', auth.currentUser.uid));
-        if (tokenDoc.exists()) {
-          const data = tokenDoc.data();
-          googleTokens.accessToken = token || data.accessToken || '';
-          googleTokens.refreshToken = data.refreshToken || '';
-        }
-      }
-      
-      if (!googleTokens.accessToken && token && auth.currentUser) {
-         googleTokens.accessToken = token;
-         await setDoc(doc(db, 'user_tokens', auth.currentUser.uid), {
-            accessToken: token,
-            updatedAt: new Date().toISOString()
-         }, { merge: true }).catch(console.error);
-      }
-    } catch (e) {
-      console.warn("Failed to read user_tokens from client:", e);
-    }
+    const googleTokens = await getStoredGoogleTokens(token);
 
     if (!googleTokens.accessToken && !googleTokens.refreshToken) {
-      throw new Error('Google Calendar not connected.');
+      throw new Error('Google Calendar not connected. Please connect via Settings.');
     }
 
     const response = await fetch('/api/calendar/event', {
       method: 'POST',
-      headers: {
-        ...headers,
-        'Content-Type': 'application/json'
-      },
+      headers: { ...headers, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         summary: title,
         description: description || 'Scheduled via Flare AI Triage Engine',
@@ -335,39 +339,20 @@ export async function createCalendarEvent(
 
     if (!response.ok) {
       if (response.status === 401) {
-         setCachedAccessToken(null);
-         try {
-           const { db } = await import('./firebase');
-           const { doc, deleteDoc } = await import('firebase/firestore');
-           const { auth } = await import('./firebase');
-           if (auth.currentUser) {
-              await deleteDoc(doc(db, 'user_tokens', auth.currentUser.uid)).catch(console.error);
-           }
-         } catch(e) {}
-         throw new Error('Google Calendar not connected or token expired.');
+        // Only clear the expired accessToken — preserve the refreshToken so
+        // the next server-side refresh attempt can still recover.
+        await clearExpiredAccessToken();
+        throw new Error('Google Calendar session expired. Please reconnect via Settings.');
       }
       const errorText = await response.text();
-      throw new Error(`Failed to create calendar event from proxy: ${response.statusText} - ${errorText}`);
+      throw new Error(`Calendar event proxy error ${response.status}: ${errorText}`);
     }
 
     const data = await response.json();
-    
-    // If the server refreshed the token, save it
+
+    // Server auto-refreshed the token — persist the new one
     if (data.newAccessToken) {
-      setCachedAccessToken(data.newAccessToken);
-      try {
-        const { db } = await import('./firebase');
-        const { doc, setDoc } = await import('firebase/firestore');
-        const { auth } = await import('./firebase');
-        if (auth.currentUser) {
-          await setDoc(doc(db, 'user_tokens', auth.currentUser.uid), {
-            accessToken: data.newAccessToken,
-            updatedAt: new Date().toISOString()
-          }, { merge: true });
-        }
-      } catch (e) {
-        console.warn("Failed to update new access token in Firestore", e);
-      }
+      await persistRefreshedToken(data.newAccessToken);
     }
 
     return {
@@ -375,7 +360,7 @@ export async function createCalendarEvent(
       htmlLink: data.htmlLink
     };
   } catch (error) {
-    console.error('Error in createCalendarEvent:', error);
+    console.error('[calendarService] Error in createCalendarEvent:', error);
     throw error;
   }
 }

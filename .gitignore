@@ -1,9 +1,30 @@
+# Dependencies
 node_modules/
+
+# Build output
 build/
 dist/
+
+# Test coverage
 coverage/
+
+# OS artifacts
 .DS_Store
+
+# Logs
 *.log
+
+# Environment variables (never commit secrets)
 .env*
 !.env.example
+
+# Firebase
 firebase-applet-config.json
+
+# Dev/scratch test files
+test-*.ts
+test-*.js
+temp.css
+
+# Metadata
+metadata.json

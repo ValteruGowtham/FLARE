@@ -133,8 +133,9 @@ async function createCalendarEventServer(
 /**
  * Send an email via Gmail API
  */
-export async function sendEmailServer(accessToken: string, to: string, subject: string, bodyText: string) {
+export async function sendEmailServer(accessToken: string, to: string, subject: string, bodyText: string, from?: string) {
   const emailLines = [
+    ...(from ? [`From: ${from}`] : []),
     `To: ${to}`,
     `Subject: ${subject}`,
     `Content-Type: text/html; charset=utf-8`,
@@ -233,6 +234,9 @@ Return a JSON object with 'subject' and 'body' fields.
 
 /**
  * Main Autonomous Sweep Function
+ * Processes a single user's active tasks: re-evaluates risk scores,
+ * auto-schedules calendar blocks for Critical tasks, and sends Gmail
+ * notifications / extension draft emails as needed.
  */
 export async function runAutonomousSweep(
   userId: string,
@@ -241,6 +245,21 @@ export async function runAutonomousSweep(
   activeTasks: any[]
 ) {
   const logs: string[] = [];
+
+  // --- Guard: validate required parameters ---
+  if (!userId || typeof userId !== 'string') {
+    logs.push('Sweep aborted: missing or invalid userId.');
+    return { status: 'error', logs, taskUpdatesMap: {} };
+  }
+  if (!freshAccessToken || typeof freshAccessToken !== 'string') {
+    logs.push(`Sweep aborted for user ${userId}: no valid Google access token provided.`);
+    return { status: 'error', logs, taskUpdatesMap: {} };
+  }
+  if (!Array.isArray(activeTasks)) {
+    logs.push(`Sweep aborted for user ${userId}: activeTasks must be an array.`);
+    return { status: 'error', logs, taskUpdatesMap: {} };
+  }
+
   logs.push(`Sweep started at: ${new Date().toISOString()}`);
 
   const quietMode = isQuietHours();
@@ -374,7 +393,7 @@ export async function runAutonomousSweep(
                   <p style="color: #6b7280; font-size: 12px; margin-top: 24px;">This is an automated promise-guarantor message from Flare.</p>
                 </div>
               `;
-              await sendEmailServer(freshAccessToken, userEmail, emailSubject, emailBody);
+              await sendEmailServer(freshAccessToken, userEmail, emailSubject, emailBody, userEmail);
               taskUpdates.lastNotifiedAt = now.toISOString();
               logs.push(`User ${userId}: Notification email sent successfully.`);
             }
@@ -420,7 +439,7 @@ export async function runAutonomousSweep(
               <p style="color: #6b7280; font-size: 12px; margin-top: 24px;">This is an automated promise-guarantor message from Flare.</p>
             </div>
           `;
-          await sendEmailServer(freshAccessToken, userEmail, emailSubject, emailBody);
+          await sendEmailServer(freshAccessToken, userEmail, emailSubject, emailBody, userEmail);
           taskUpdates.lastNotifiedAt = now.toISOString();
           taskUpdates.updatedAt = now.toISOString();
           logs.push(`User ${userId}: Queued morning notification email sent successfully.`);

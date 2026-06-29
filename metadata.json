@@ -1,6 +1,0 @@
-{
-  "name": "Flare",
-  "description": "An AI deadline-rescue companion that prioritizes tasks based on AI-estimated risk scores.",
-  "requestFramePermissions": ["microphone"],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}

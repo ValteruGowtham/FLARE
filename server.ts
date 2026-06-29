@@ -4,6 +4,7 @@ import { createServer as createViteServer } from 'vite';
 import { evaluateTaskRisk, TaskEvaluationInput } from './server/riskScorer.js';
 import { storeUserGoogleTokens, runAutonomousSweep, sendEmailServer, refreshGoogleAccessToken } from './server/rescueAgent.js';
 import { dbAdmin, authAdmin } from './server/firebaseAdmin.js';
+import type { QuerySnapshot, DocumentData } from 'firebase-admin/firestore';
 
 // Authentication Middleware
 const requireAuth = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
@@ -179,11 +180,13 @@ async function startServer() {
             <script>
               try {
                 if (window.opener) {
+                  // Use JSON.stringify to safely encode token values — prevents JS syntax errors
+                  // if any token value contains quotes, backslashes, or newline characters.
                   window.opener.postMessage({
                     type: 'OAUTH_AUTH_SUCCESS',
-                    accessToken: '${tokens.access_token}',
-                    refreshToken: '${tokens.refresh_token || ""}',
-                    scopes: '${tokens.scope || ""}'
+                    accessToken: ${JSON.stringify(tokens.access_token || '')},
+                    refreshToken: ${JSON.stringify(tokens.refresh_token || '')},
+                    scopes: ${JSON.stringify(tokens.scope || '')}
                   }, '*');
                 }
               } catch (e) {
@@ -253,17 +256,105 @@ async function startServer() {
   });
 
   // Secure Autonomous Sweep endpoint (Cron trigger)
+  // Loops all users via Firestore Admin, fetches their active tasks & tokens,
+  // then calls runAutonomousSweep per user.
   app.post('/api/agent/sweep', async (req, res) => {
     try {
       const authHeader = req.headers['x-rescue-agent-key'];
       const expectedKey = process.env.RESCUE_AGENT_KEY || 'flare_secret_sweep_token_2026';
-      
+
       if (!authHeader || authHeader !== expectedKey) {
         return res.status(401).json({ error: 'Unauthorized: Invalid x-rescue-agent-key header' });
       }
 
-      const result = await runAutonomousSweep();
-      return res.json(result);
+      const allLogs: string[] = [];
+      const allTaskUpdates: Record<string, any> = {};
+
+      // 1. Fetch all user token documents to know which users have Google connected
+      let tokenDocs: QuerySnapshot<DocumentData> | undefined;
+      try {
+        tokenDocs = await dbAdmin.collection('user_tokens').get();
+      } catch (err: any) {
+        console.error('[Cron Sweep] Failed to fetch user_tokens from Firestore Admin:', err);
+        return res.status(500).json({ error: 'Failed to load user tokens: ' + err.message });
+      }
+
+      if (!tokenDocs || tokenDocs.empty) {
+        allLogs.push('No users with connected Google accounts found. Sweep complete.');
+        return res.json({ status: 'success', logs: allLogs, taskUpdatesMap: allTaskUpdates });
+      }
+
+      // 2. For each user, resolve their access token, fetch active tasks, and run sweep
+      await Promise.all(tokenDocs.docs.map(async (tokenDoc) => {
+        const userId = tokenDoc.id;
+        const tokenData = tokenDoc.data();
+
+        let accessToken: string = tokenData.accessToken || '';
+        const refreshToken: string = tokenData.refreshToken || '';
+
+        // Refresh the access token if we have a refresh token
+        if (refreshToken) {
+          try {
+            accessToken = await refreshGoogleAccessToken(refreshToken);
+            // Persist the refreshed token back to Firestore
+            await dbAdmin.collection('user_tokens').doc(userId).set(
+              { accessToken, updatedAt: new Date().toISOString() },
+              { merge: true }
+            );
+          } catch (refreshErr: any) {
+            allLogs.push(`[User ${userId}] Failed to refresh Google token: ${refreshErr.message}. Skipping.`);
+            return;
+          }
+        }
+
+        if (!accessToken) {
+          allLogs.push(`[User ${userId}] No valid access token available. Skipping.`);
+          return;
+        }
+
+        // Resolve the user's email from Firebase Auth
+        let userEmail = '';
+        try {
+          const userRecord = await authAdmin.getUser(userId);
+          userEmail = userRecord.email || '';
+        } catch (authErr: any) {
+          allLogs.push(`[User ${userId}] Failed to resolve user email: ${authErr.message}. Skipping.`);
+          return;
+        }
+
+        // Fetch active (non-done) tasks for this user
+        let activeTasks: any[] = [];
+        try {
+          const tasksSnap = await dbAdmin.collection('tasks')
+            .where('userId', '==', userId)
+            .where('status', '!=', 'done')
+            .get();
+          activeTasks = tasksSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        } catch (taskErr: any) {
+          allLogs.push(`[User ${userId}] Failed to fetch tasks: ${taskErr.message}. Skipping.`);
+          return;
+        }
+
+        // Run the autonomous sweep for this user
+        try {
+          const result = await runAutonomousSweep(userId, userEmail, accessToken, activeTasks);
+          allLogs.push(...(result.logs || []));
+
+          // Apply task updates to Firestore
+          for (const [taskId, updates] of Object.entries(result.taskUpdatesMap || {})) {
+            try {
+              await dbAdmin.collection('tasks').doc(taskId).set(updates, { merge: true });
+              allTaskUpdates[taskId] = updates;
+            } catch (updateErr: any) {
+              allLogs.push(`[User ${userId}] Failed to persist updates for task ${taskId}: ${updateErr.message}`);
+            }
+          }
+        } catch (sweepErr: any) {
+          allLogs.push(`[User ${userId}] Sweep error: ${sweepErr.message}`);
+        }
+      }));
+
+      return res.json({ status: 'success', logs: allLogs, taskUpdatesMap: allTaskUpdates });
     } catch (error: any) {
       console.error('API Error in /api/agent/sweep:', error);
       return res.status(500).json({ error: error.message || 'Internal Server Error' });

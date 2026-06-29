@@ -253,8 +253,8 @@ export default function TaskFormModal({ isOpen, onClose, onSave, taskToEdit }: T
             Cancel
           </button>
           <button
-            type="button"
-            onClick={handleSubmit}
+            type="submit"
+            form="task-modal-form"
             disabled={isSubmitting}
             className="bg-black dark:bg-white hover:bg-zinc-800 dark:hover:bg-zinc-200 disabled:bg-zinc-400 dark:disabled:bg-zinc-600 text-white dark:text-black font-bold text-xs uppercase tracking-widest px-5 py-2.5 rounded-none transition flex items-center gap-1.5 cursor-pointer"
             id="save-task-button"

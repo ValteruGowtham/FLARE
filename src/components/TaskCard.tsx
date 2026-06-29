@@ -307,7 +307,7 @@ export default function TaskCard({ task, onEdit, onDelete, onStatusChange, onSch
 
         {isExpanded && (
           <p className="mt-2 text-xs italic font-serif text-zinc-800 leading-relaxed bg-[#FDFDFD] border border-black/5 p-3 animate-fade-in shadow-2xs">
-            "{task.riskReasoning}"
+            &ldquo;{task.riskReasoning}&rdquo;
           </p>
         )}
       </div>

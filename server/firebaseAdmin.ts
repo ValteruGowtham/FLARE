@@ -19,6 +19,18 @@ try {
 }
 
 if (getApps().length === 0) {
+  // Initializes using Application Default Credentials (ADC).
+  // Locally: set GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json
+  //          OR run: gcloud auth application-default login
+  // On GCP / Cloud Run: ADC is automatically provided via the runtime service account.
+  if (!process.env.GOOGLE_APPLICATION_CREDENTIALS && process.env.NODE_ENV !== 'production') {
+    console.warn(
+      '[Firebase Admin] WARNING: GOOGLE_APPLICATION_CREDENTIALS is not set.\n' +
+      '  Server-side features (auth verification, Firestore Admin, cron sweep) will fail locally.\n' +
+      '  Fix: Set GOOGLE_APPLICATION_CREDENTIALS to a service account key JSON path,\n' +
+      '       or run `gcloud auth application-default login`.'
+    );
+  }
   initializeApp({
     projectId
   });
@@ -26,4 +38,5 @@ if (getApps().length === 0) {
 
 export const dbAdmin = getFirestore(getApps()[0], databaseId);
 export const authAdmin = getAuth();
+
 

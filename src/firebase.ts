@@ -19,4 +19,7 @@ export const db = getFirestore(app, (config as any).firestoreDatabaseId || '(def
 
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
-googleProvider.addScope('https://www.googleapis.com/auth/calendar');
+// Note: Do NOT add calendar/gmail scopes to the Firebase provider here.
+// The Firebase-issued access token is tied to Firebase's OAuth client and cannot
+// be used with this app's server-side Calendar/Gmail proxy (different GOOGLE_CLIENT_ID).
+// Calendar & Gmail tokens are obtained separately via the /api/auth/google/url flow.

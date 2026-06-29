@@ -3,10 +3,10 @@ import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signInWithPopup,
-  GoogleAuthProvider,
   sendEmailVerification,
   updateProfile,
   fetchSignInMethodsForEmail,
+  signOut,
 } from "firebase/auth";
 import { auth, googleProvider } from "../firebase.js";
 import {
@@ -153,6 +153,9 @@ export default function AuthScreen({ onContinueAsGuest }: AuthScreenProps) {
         );
         await updateProfile(userCredential.user, { displayName: name });
         await sendEmailVerification(userCredential.user);
+        // Sign out immediately so App.tsx doesn't redirect them to the dashboard.
+        // This ensures they stay on the AuthScreen to see the "Check your inbox" message.
+        await signOut(auth);
         setVerificationSent(true);
       } else {
         await signInWithEmailAndPassword(auth, email, password);
@@ -163,8 +166,18 @@ export default function AuthScreen({ onContinueAsGuest }: AuthScreenProps) {
         setError(
           "Email/Password authentication is disabled. Please enable it in your Firebase Console: Authentication -> Sign-in method.",
         );
+      } else if (isRegister) {
+        if (err.code === "auth/email-already-in-use") {
+          setError("This email is already registered. Please sign in instead.");
+        } else if (err.code === "auth/weak-password") {
+          setError("Password is too weak. Please use a stronger password.");
+        } else if (err.code === "auth/invalid-email") {
+          setError("Please enter a valid email address.");
+        } else {
+          setError(err.message || "An error occurred during registration.");
+        }
       } else {
-        // Generic error message for both login and register to not leak user existence
+        // Generic error message for login to not leak user existence
         setError("Invalid email or password.");
       }
 
@@ -190,12 +203,10 @@ export default function AuthScreen({ onContinueAsGuest }: AuthScreenProps) {
     setError(null);
     setLoading(true);
     try {
-      const result = await signInWithPopup(auth, googleProvider);
-      const credential = GoogleAuthProvider.credentialFromResult(result);
-      const token = credential?.accessToken;
-      if (token) {
-        localStorage.setItem("google_calendar_access_token", token);
-      }
+      await signInWithPopup(auth, googleProvider);
+      // NOTE: Do NOT store Firebase's OAuth access token as the Calendar token.
+      // Firebase's token is tied to Firebase's OAuth client — not the app's GOOGLE_CLIENT_ID.
+      // Calendar connection must be done explicitly via the "Connect Calendar" OAuth flow.
     } catch (err: any) {
       console.error("Google Auth error:", err);
       if (err.code === "auth/operation-not-allowed") {
