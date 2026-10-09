@@ -229,6 +229,7 @@ The Express server and Vite dev server run together on `http://localhost:3000`.
 | `POST` | `/api/account/delete` | Firebase JWT | Delete account and revoke tokens |
 
 ### Environment Variables
+Architecture
 
 | Variable | Description |
 |---|---|
