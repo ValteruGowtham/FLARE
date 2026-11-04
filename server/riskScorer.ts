@@ -32,11 +32,6 @@ export interface TaskEvaluationOutput {
 
 /**
  * Calculates a task's risk score and a short reasoning phrase.
- * If Gemini is available, uses the AI to combine context (title, description, category) with mathematics.
- * Otherwise, uses a math-based heuristic fallback.
- */
-/**
- * Calculates a task's risk score and a short reasoning phrase.
  * Uses a robust, deterministic mathematical scheduling algorithm by default.
  * This guarantees instant, reliable, and zero-cost risk classification without reaching API quota limits.
  * If Gemini is explicitly requested and available, it can optionally refine the reasoning.

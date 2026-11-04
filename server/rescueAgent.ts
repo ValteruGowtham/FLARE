@@ -16,7 +16,7 @@ export function isQuietHours(): boolean {
     console.error('Failed to parse America/Los_Angeles time, falling back to UTC:', error);
     const hourUtc = new Date().getUTCHours();
     // UTC equivalent of Pacific 10pm-7am (offset is roughly UTC-7 or UTC-8)
-    const pacificHour = (hourUtc - 7 + 24) % 24;
+    const pacificHour = (hourUtc - 8 + 24) % 24;
     return pacificHour >= 22 || pacificHour < 7;
   }
 }
