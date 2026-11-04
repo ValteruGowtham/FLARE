@@ -1,19 +1,25 @@
-import { GoogleGenAI, Type } from '@google/genai';
-import { calculateAvailableHours } from '../src/sharedUtils.js';
-
-// Initialize GoogleGenAI client on the server side
-const apiKey = process.env.GEMINI_API_KEY;
-const ai = apiKey ? new GoogleGenAI({
-  apiKey,
-  httpOptions: {
-    headers: {
-      'User-Agent': 'aistudio-build',
-    }
-  }
-}) : null;
+import { calculateAvailableHours } from '../src/sharedUtils.ts';
 
 // Track if the API key is currently rate-limited or out of quota to avoid error spam
 let isRateLimitedUntil = 0;
+let aiClient: any = null;
+
+async function getAiClient() {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) return null;
+  if (!aiClient) {
+    const { GoogleGenAI } = await import('@google/genai');
+    aiClient = new GoogleGenAI({
+      apiKey,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        }
+      }
+    });
+  }
+  return aiClient;
+}
 
 export interface TaskEvaluationInput {
   title: string;
@@ -108,11 +114,14 @@ export async function evaluateTaskRisk(
   // If Gemini is disabled, rate-limited, or we want to guarantee deterministic safety, return immediately.
   // We prefer the deterministic algorithm because it is instant and always accurate.
   const preferDeterministic = true;
-  if (preferDeterministic || !ai || Date.now() < isRateLimitedUntil) {
+  if (preferDeterministic || !process.env.GEMINI_API_KEY || Date.now() < isRateLimitedUntil) {
     return { riskScore, reasoning };
   }
 
   try {
+    const ai = await getAiClient();
+    if (!ai) return { riskScore, reasoning };
+    const { Type } = await import('@google/genai');
     const prompt = `
 You are the AI triage engine of Flare, a deadline-rescue companion.
 Analyze this active task and determine its risk level ("Critical", "Urgent", or "Stable") and write a very short, elegant explanation note (max 18 words) explaining the math of actual available hours (time left minus calendar busy blocks) vs. effort required.

@@ -1,9 +1,10 @@
 import express from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
-import { evaluateTaskRisk, TaskEvaluationInput } from './server/riskScorer.js';
-import { storeUserGoogleTokens, runAutonomousSweep, sendEmailServer, refreshGoogleAccessToken } from './server/rescueAgent.js';
-import { dbAdmin, authAdmin } from './server/firebaseAdmin.js';
+import { evaluateTaskRisk, TaskEvaluationInput } from './server/riskScorer.ts';
+import { storeUserGoogleTokens, runAutonomousSweep, sendEmailServer, refreshGoogleAccessToken } from './server/rescueAgent.ts';
+import { dbAdmin, authAdmin } from './server/firebaseAdmin.ts';
+import { parseVoiceCommand } from './server/voiceParser.ts';
 import type { QuerySnapshot, DocumentData } from 'firebase-admin/firestore';
 
 // Authentication Middleware
@@ -260,9 +261,14 @@ async function startServer() {
   // then calls runAutonomousSweep per user.
   app.post('/api/agent/sweep', async (req, res) => {
     try {
-      const authHeader = req.headers['x-rescue-agent-key'];
-      const expectedKey = process.env.RESCUE_AGENT_KEY || 'flare_secret_sweep_token_2026';
+      const expectedKey = process.env.RESCUE_AGENT_KEY;
+      if (!expectedKey) {
+        return res.status(500).json({
+          error: 'Server configuration error: RESCUE_AGENT_KEY environment variable is required and not configured'
+        });
+      }
 
+      const authHeader = req.headers['x-rescue-agent-key'];
       if (!authHeader || authHeader !== expectedKey) {
         return res.status(401).json({ error: 'Unauthorized: Invalid x-rescue-agent-key header' });
       }
@@ -585,9 +591,16 @@ async function startServer() {
   // Voice Assistance Endpoint
   app.post('/api/voice', async (req, res) => {
     try {
-      const { audioBase64, mimeType, currentTime } = req.body;
+      const { audioBase64, mimeType, text, currentTime } = req.body;
+      const evalTime = currentTime || new Date().toISOString();
+
+      if (text) {
+        const result = await parseVoiceCommand(text, evalTime);
+        return res.json(result);
+      }
+
       if (!audioBase64 || !mimeType) {
-        return res.status(400).json({ error: 'Missing audio data' });
+        return res.status(400).json({ error: 'Missing audio data or text transcript' });
       }
 
       const { GoogleGenAI, Type } = await import('@google/genai');

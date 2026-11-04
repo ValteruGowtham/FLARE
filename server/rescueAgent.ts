@@ -1,7 +1,6 @@
-import { dbAdmin, authAdmin } from './firebaseAdmin.js';
-import { evaluateTaskRisk } from './riskScorer.js';
-import { findNextFreeSlot, calculateAvailableHours } from '../src/sharedUtils.js';
-import { GoogleGenAI, Type } from '@google/genai';
+import { dbAdmin, authAdmin } from './firebaseAdmin.ts';
+import { evaluateTaskRisk } from './riskScorer.ts';
+import { findNextFreeSlot, calculateAvailableHours } from '../src/sharedUtils.ts';
 
 /**
  * Checks if the current hour in the user's timezone (America/Los_Angeles) is within quiet hours (10pm - 7am)
@@ -181,6 +180,7 @@ async function generateRescheduleDraft(task: any, userEmail: string): Promise<{ 
   }
 
   try {
+    const { GoogleGenAI, Type } = await import('@google/genai');
     const ai = new GoogleGenAI({ apiKey });
     const prompt = `
 You are the AI triage engine of Flare, a deadline-rescue companion.
