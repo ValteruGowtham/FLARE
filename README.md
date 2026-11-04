@@ -377,6 +377,4 @@ The primary path (`toLocaleString` with `America/Los_Angeles`) is unaffected; th
 
 ---
 
-## License
 
-MIT
